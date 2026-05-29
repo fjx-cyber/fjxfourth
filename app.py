@@ -1,9 +1,8 @@
-from flask import Flask, request, send_from_directory
+from flask import Flask, request, send_from_directory, jsonify
 from PIL import Image, ImageDraw, ImageFont
 import requests
 import os
 import uuid
-import json
 
 app = Flask(__name__)
 
@@ -18,58 +17,85 @@ def home():
 
 @app.route("/draw", methods=["POST"])
 def draw():
-
-    data = request.json
-    image_url = data["image_url"]
-    errors = data["errors"]
-
-    # 下载图片
-    image_id = str(uuid.uuid4())
-    image_path = os.path.join(UPLOAD_DIR, f"{image_id}.jpg")
-
-    img_data = requests.get(image_url).content
-    with open(image_path, "wb") as f:
-        f.write(img_data)
-
-    img = Image.open(image_path)
-    draw = ImageDraw.Draw(img)
-
     try:
-        font = ImageFont.truetype("arial.ttf", 30)
-    except:
-        font = ImageFont.load_default()
+        data = request.json
 
-    for err in errors:
-        x = err["x"]
-        y = err["y"]
-        w = err["w"]
-        h = err["h"]
+        # 兼容 Dify 的不同输入格式
+        image_url = None
 
-        draw.rectangle(
-            [x, y, x + w, y + h],
-            outline="red",
-            width=5
-        )
+        if "image_url" in data:
+            image_url = data["image_url"]
 
-        draw.text(
-            (x, y - 30),
-            "错误",
-            fill="red",
-            font=font
-        )
+        elif "homework_image" in data:
+            image_url = data["homework_image"].get("url")
 
-    output_name = f"{image_id}_output.jpg"
-    output_path = os.path.join(UPLOAD_DIR, output_name)
+        if not image_url:
+            return jsonify({"error": "No image URL found"}), 400
 
-    img.save(output_path)
+        errors = data.get("errors", [
+            {
+                "x": 100,
+                "y": 100,
+                "w": 200,
+                "h": 120
+            }
+        ])
 
-    return {
-        "annotated_image_url":
-        request.host_url + "image/" + output_name
-    }
+        # 下载图片
+        image_id = str(uuid.uuid4())
+        image_path = os.path.join(UPLOAD_DIR, f"{image_id}.jpg")
+
+        img_data = requests.get(image_url).content
+
+        with open(image_path, "wb") as f:
+            f.write(img_data)
+
+        img = Image.open(image_path)
+        draw_obj = ImageDraw.Draw(img)
+
+        try:
+            font = ImageFont.truetype("arial.ttf", 30)
+        except:
+            font = ImageFont.load_default()
+
+        for err in errors:
+            x = err["x"]
+            y = err["y"]
+            w = err["w"]
+            h = err["h"]
+
+            # 红框
+            draw_obj.rectangle(
+                [x, y, x + w, y + h],
+                outline="red",
+                width=5
+            )
+
+            # 标记文字
+            draw_obj.text(
+                (x, y - 30),
+                "错误",
+                fill="red",
+                font=font
+            )
+
+        output_name = f"{image_id}_output.jpg"
+        output_path = os.path.join(UPLOAD_DIR, output_name)
+
+        img.save(output_path)
+
+        return jsonify({
+            "annotated_image_url":
+                request.host_url + "image/" + output_name
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
-@app.route('/image/<filename>')
+@app.route("/image/<filename>")
 def serve_image(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
