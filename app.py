@@ -15,6 +15,11 @@ def home():
     return "Math Grader API is running"
 
 
+@app.route("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.route("/draw", methods=["POST"])
 def draw():
     try:
